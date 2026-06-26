@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    environment:
+      MARKETING_SWARM_DB_PATH: /data/marketing_swarm.sqlite3
+      MARKETING_SWARM_ARTIFACT_DIR: /data/artifacts
+      MARKETING_SWARM_LLM_PROVIDER: local
+      MARKETING_SWARM_LOCAL_ENDPOINT: http://model-runtime:11434
+    volumes:
+      - swarm-data:/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - model-runtime
+
+  model-runtime:
+    image: ollama/ollama:latest
+    volumes:
+      - local-models:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  swarm-data:
+  local-models:
