@@ -6,7 +6,7 @@ The dashboard in `apps/dashboard` is a Next.js App Router interface for commandi
 
 - Role-based access: admins and operators can command agents; reviewers and viewers can inspect workflow results and memory.
 - User memory: short-term command notes, durable long-term preferences, and checkpoint memory created by workflow runs.
-- Agent command flow: brief, workflow type, priority, channels, and approval requirement are posted to the FastAPI backend.
+- Agent command flow: brief, workflow type, priority, channels, and approval requirement are posted to the FastAPI backend and executed through the LangGraph workflow.
 - Result retrieval: the UI displays the artifact markdown, workflow timeline, approvals, and updated memory after each run.
 - Demo fallback: the Next.js route handlers return seeded demo data if the FastAPI service is not reachable.
 - Free local stack: local FastAPI, local SQLite, local Next.js, no required paid auth, storage, queue, or hosted model provider.
@@ -30,9 +30,9 @@ The dashboard exposes three user-scoped memory types:
 |---|---|
 | `short` | The latest command context: brief, workflow type, priority, channels, and operator memory notes. |
 | `long` | Durable summaries from generated workflows, including quality and routing summaries. |
-| `checkpoint` | Compact run boundary data: run id, status, route decision, and package id. |
+| `checkpoint` | Compact LangGraph run boundary data: run id, status, route decision, and package id. |
 
-When `POST /dashboard/agent/command` runs, the API saves `short` memory first, loads recent memory into the campaign brief metadata, executes the agent workflow, then saves `checkpoint` and `long` memory from the result. The dashboard receives those records in the response and merges them into the selected user's memory panel.
+When `POST /dashboard/agent/command` runs, the API saves `short` memory first, loads recent memory into the campaign brief metadata, executes the LangGraph-backed agent workflow, then saves `checkpoint` and `long` memory from the result. The dashboard receives those records in the response and merges them into the selected user's memory panel.
 
 ## Local Run
 

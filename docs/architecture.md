@@ -2,7 +2,7 @@
 
 Updated: June 2026.
 
-Agentic Marketing Swarm is a local-first campaign orchestration project with a FastAPI backend, a Next.js dashboard, a checkpointed agent engine, local retrieval, local memory, guardrails, observability, and deterministic evals. It is intentionally free to run by default: no required API keys, business account, hosted auth, paid vector database, managed queue, or cloud database.
+Agentic Marketing Swarm is a local-first campaign orchestration project with a FastAPI backend, a Next.js dashboard, a LangGraph-backed checkpointed agent engine, local retrieval, local memory, guardrails, observability, and deterministic evals. It is intentionally free to run by default: no required API keys, business account, hosted auth, paid vector database, managed queue, or cloud database.
 
 ## System Plane
 
@@ -21,7 +21,8 @@ flowchart TB
     UI["Next.js dashboard<br/>React + TypeScript"]:::iface
     API["FastAPI REST<br/>runs + dashboard endpoints"]:::iface
     RBAC["Role gate<br/>admin operator reviewer viewer"]:::gate
-    ENGINE["CampaignEngine"]:::orch
+    ENGINE["CampaignEngine<br/>runtime owner"]:::orch
+    GRAPH["LangGraph StateGraph<br/>prepare guardrails plan execute aggregate"]:::orch
     ROUTER["MultiRouteRouter"]:::orch
     AGENTS["Supervisor + 10 specialists"]:::agent
     TOOLS["ToolRegistry"]:::tool
@@ -35,21 +36,22 @@ flowchart TB
     UI --> API
     API --> RBAC
     RBAC --> ENGINE
-    ENGINE --> ROUTER
-    ENGINE --> AGENTS
+    ENGINE --> GRAPH
+    GRAPH --> ROUTER
+    GRAPH --> AGENTS
     AGENTS --> TOOLS
     AGENTS --> RAG
     ENGINE --> MEM
     RBAC --> USERMEM
     RBAC --> WORKFLOWS
-    ENGINE --> OBS
-    ENGINE --> STORE
+    GRAPH --> OBS
+    GRAPH --> STORE
     MEM --> STORE
     USERMEM --> STORE
     WORKFLOWS --> STORE
 ```
 
-**System Plane.** The dashboard is the human command surface. FastAPI receives commands, applies lightweight role checks, writes dashboard memory, and forwards normalized briefs to `CampaignEngine`. The engine owns routing, checkpointing, policy decisions, specialist execution, retrieval, package synthesis, and event persistence.
+**System Plane.** The dashboard is the human command surface. FastAPI receives commands, applies lightweight role checks, writes dashboard memory, and forwards normalized briefs to `CampaignEngine`. The engine owns a compiled LangGraph `StateGraph`; graph nodes call the engine runtime for routing, checkpointing, policy decisions, specialist execution, retrieval, package synthesis, and event persistence.
 
 ## Dashboard Command Sequence
 
@@ -61,6 +63,7 @@ sequenceDiagram
     participant API as FastAPI
     participant DB as SQLiteRepository
     participant ENG as CampaignEngine
+    participant LG as LangGraph StateGraph
     participant AG as Specialist Agents
 
     U->>UI: choose target user and submit command
@@ -69,6 +72,7 @@ sequenceDiagram
     API->>DB: write short user memory
     API->>DB: load recent user memory
     API->>ENG: run CampaignBrief with user_memory_context metadata
+    ENG->>LG: ainvoke prepare -> guardrails -> plan -> execute -> aggregate
     ENG->>AG: route and execute specialist tasks
     ENG->>DB: persist run state, events, and package
     API->>DB: write checkpoint and long user memory

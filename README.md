@@ -7,22 +7,23 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-3b82f6" alt="Python 3.11+" />
   <img src="https://img.shields.io/badge/agents-11%20(1%20supervisor%20%2B%2010%20specialists)-8b5cf6" alt="11 agents" />
   <img src="https://img.shields.io/badge/inference-100%25%20local%20%7C%20%240%20API%20cost-f59e0b" alt="100% local" />
-  <img src="https://img.shields.io/badge/orchestration-checkpointed%20state%20graph-06b6d4" alt="State graph orchestration" />
-  <img src="https://img.shields.io/badge/tests-22%20passing-22c55e" alt="Tests" />
+  <img src="https://img.shields.io/badge/orchestration-LangGraph%20StateGraph-06b6d4" alt="LangGraph StateGraph orchestration" />
+  <img src="https://img.shields.io/badge/tests-23%20passing-22c55e" alt="Tests" />
   <img src="https://img.shields.io/badge/coverage-%3E%3D80%25-16a34a" alt="Coverage target" />
 </p>
 
-Agentic Marketing Swarm is a local-first agent workforce for marketing workflows: one supervisor agent and ten specialist agents turn a high-level campaign brief into a traceable campaign package with strategy, research, content, copy, search guidance, lifecycle messaging, creative briefs, QA verdicts, and optimization plans. Built for June 2026 review, it pairs production-style orchestration, a modern multi-user dashboard, grounded retrieval, user memory, guardrails, observability, and eval gates with a zero-required-cost stack that can run on a single laptop.
+Agentic Marketing Swarm is a local-first 11-agent workforce for marketing workflows: one supervisor agent and ten specialist agents turn a high-level campaign brief into a traceable campaign package with strategy, research, content, copy, search guidance, lifecycle messaging, creative briefs, QA verdicts, and optimization plans. Built for June 2026 review, it pairs LangGraph orchestration, a modern multi-user dashboard, grounded retrieval, user memory, guardrails, observability, and eval gates with a zero-required-cost stack that can run on a single laptop.
 
 ## Why This Exists
 
-Coordinating many specialist agents reliably is an orchestration problem, not a prompt-writing problem. This project treats each campaign as a checkpointed state graph with typed tasks, deterministic and semantic routing, bounded quality loops, confidence thresholds, and human approval gates. Every model call, tool result, route decision, memory read, user command, and artifact is structured so a reviewer can replay what happened and why. The default runtime avoids paid APIs, paid vector databases, paid auth services, and cloud dependencies while still preserving the interfaces needed to swap providers, stores, and deployment shapes later.
+Coordinating many specialist agents reliably is an orchestration problem, not a prompt-writing problem. This project treats each campaign as a compiled LangGraph `StateGraph` with typed tasks, deterministic and semantic routing, bounded quality loops, confidence thresholds, and human approval gates. Every model call, tool result, route decision, memory read, user command, and artifact is structured so a reviewer can replay what happened and why. The default runtime avoids paid APIs, paid vector databases, paid auth services, and cloud dependencies while still preserving the interfaces needed to swap providers, stores, and deployment shapes later.
 
 ## Highlights
 
 - **11-agent workforce:** one Campaign Director plus Research, Competitive Intelligence, Content Strategy, Copywriting, SEO/GEO, Social, Email, Creative Brief, Brand Voice/QA, and Analytics specialists.
+- **LangGraph orchestration:** `StateGraph` nodes for `prepare`, `guardrails`, `plan`, `execute`, and `aggregate` coordinate the workflow through explicit conditional edges.
 - **Multi-mode routing:** deterministic intent routes, semantic fallback, parallel fan-out/fan-in, sequential dependency chains, typed A2A handoffs, QA cycles, and HITL escalation.
-- **Agentic RAG:** query rewriting, local vector retrieval, BM25 lexical search, Reciprocal Rank Fusion, reranking, relevance grading, and citation handoff.
+- **Agentic RAG:** query rewriting, local vector embeddings, BM25 lexical search, Reciprocal Rank Fusion, reranking, relevance grading, and citation handoff.
 - **Two memory planes:** engine memory uses working, semantic, episodic, and procedural tiers; dashboard user memory uses short, long, and checkpoint scopes persisted per user.
 - **Modern user dashboard:** Next.js, React, TypeScript, and JavaScript UI for role-based multi-user agent commands, workflow history, result retrieval, and memory inspection.
 - **Typed local tools:** validated tools for research, search, reranking, SEO scoring, readability, tone, personas, calendars, rendering, claims, PII redaction, validation, routing, and experiments.
@@ -36,6 +37,7 @@ Coordinating many specialist agents reliably is an orchestration problem, not a 
 ## Table Of Contents
 
 - [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
 - [The Workforce](#the-workforce)
 - [Routing Modes](#routing-modes)
 - [Quickstart](#quickstart)
@@ -73,9 +75,9 @@ flowchart TB
     STREAM["SSE + WebSocket<br/>streaming endpoints"]:::iface
     CLI["cli.app<br/>Typer commands"]:::iface
     RBAC["dashboard role gate<br/>admin operator reviewer viewer"]:::gate
-    ENGINE["CampaignEngine"]:::orch
+    ENGINE["CampaignEngine<br/>runtime owner"]:::orch
+    GRAPH["LangGraph StateGraph<br/>prepare guardrails plan execute aggregate"]:::orch
     ROUTER["MultiRouteRouter"]:::orch
-    GRAPH["graph_builder<br/>compiled graph adapter"]:::orch
     POLICY["QualityPolicy"]:::gate
     AGG["CampaignAggregator"]:::orch
     AGENTS["MarketingAgent base<br/>supervisor + 10 specialists"]:::agent
@@ -100,16 +102,17 @@ flowchart TB
     RBAC --> ENGINE
     STREAM --> ENGINE
     CLI --> ENGINE
-    ENGINE --> ROUTER --> GRAPH
-    ENGINE --> POLICY
+    ENGINE --> GRAPH
+    GRAPH --> ROUTER
+    GRAPH --> POLICY
     GRAPH --> AGENTS
     AGENTS --> TOOLS
     AGENTS --> RAGP
     AGENTS --> GATEWAY --> PROVIDERS
     RAGP --> KBS
     ENGINE --> MEM
-    ENGINE --> STATE
-    ENGINE --> AGG
+    GRAPH --> STATE
+    GRAPH --> AGG
     STATE --> SQL
     MEM --> SQL
     RBAC --> USERMEM
@@ -117,12 +120,12 @@ flowchart TB
     USERMEM --> SQL
     DASHRUNS --> SQL
     KBS --> SQL
-    ENGINE -.guarded by.-> GUARD
+    GRAPH -.guarded by.-> GUARD
     ENGINE -.traced by.-> TRACE
     ENGINE -.scored by.-> EVAL
 ```
 
-**Figure 1 - System Architecture.** The system is layered around `CampaignEngine`, which coordinates routing, policy gates, agent execution, memory, retrieval, and package synthesis. The web dashboard talks to FastAPI dashboard endpoints, FastAPI enforces simple role gates, and SQLite stores users, user memory, workflow history, runs, artifacts, events, knowledge chunks, and checkpoints. Persistence is local and inspectable through SQLite plus JSONL traces, keeping the system runnable without managed infrastructure or paid services.
+**Figure 1 - System Architecture.** The system is layered around `CampaignEngine`, which owns a compiled LangGraph `StateGraph` for the core workflow. The graph calls runtime node methods for preparation, guardrails, planning, execution, and aggregation while the engine provides routing, policy, agents, memory, retrieval, package synthesis, and persistence. The web dashboard talks to FastAPI dashboard endpoints, FastAPI enforces simple role gates, and SQLite stores users, user memory, workflow history, runs, artifacts, events, knowledge chunks, and checkpoints. Persistence is local and inspectable through SQLite plus JSONL traces, keeping the system runnable without managed infrastructure or paid services.
 
 ### Figure 2 - Agent Orchestration Topology
 
@@ -311,6 +314,7 @@ sequenceDiagram
     actor U as Marketer
     participant API as API or CLI
     participant ENG as CampaignEngine
+    participant LG as LangGraph StateGraph
     participant RT as MultiRouteRouter
     participant GR as Guardrails
     participant RAG as AgenticRAGPipeline
@@ -322,10 +326,16 @@ sequenceDiagram
 
     U->>API: submit campaign brief
     API->>ENG: run(CampaignBrief)
+    ENG->>LG: ainvoke({brief})
+    LG->>ENG: graph_prepare
     ENG->>GR: redact PII and detect injection
+    ENG->>DB: save initial GraphState
+    LG->>ENG: graph_guardrails
+    LG->>ENG: graph_plan
     ENG->>RT: build_plan(brief)
     RT-->>ENG: CampaignPlan + RouteDecision
-    ENG->>DB: save GraphState and route event
+    ENG->>DB: save route checkpoint and event
+    LG->>ENG: graph_execute
     ENG->>RAG: retrieve local evidence
     loop parallel groups and sequential tasks
         ENG->>AG: dispatch TaskSpec + context
@@ -339,13 +349,14 @@ sequenceDiagram
         ENG->>H: HumanApprovalRequest
         H-->>ENG: approved
     end
+    LG->>ENG: graph_aggregate
     ENG->>OUT: assemble CampaignPackage
     OUT-->>ENG: package markdown and metrics
     ENG->>DB: persist package and completed state
     API-->>U: status, stream events, artifact
 ```
 
-**Figure 6 - Request Lifecycle.** A run starts with guardrails, not generation: PII redaction and injection checks happen before routing or agent dispatch. The supervisor persists the plan, retrieves evidence, executes parallel groups and sequential tasks, records every agent result, handles QA revision or HITL pause, then synthesizes a package. The same flow serves the API, streaming endpoints, and CLI because they all enter through `CampaignEngine`.
+**Figure 6 - Request Lifecycle.** A run enters `CampaignEngine.run()`, which invokes the compiled LangGraph `StateGraph`. The graph steps through `prepare`, `guardrails`, `plan`, `execute`, and `aggregate`; conditional edges stop early on policy failure or approval checkpoints. PII redaction and injection checks happen before routing or agent dispatch, the plan is persisted, evidence is retrieved, parallel and sequential agent tasks are recorded, QA revision or HITL pause is handled, and the package is synthesized only after execution completes. The same flow serves the API, streaming endpoints, and CLI because they all enter through `CampaignEngine`.
 
 ### Figure 7 - Run State Machine
 
@@ -407,6 +418,20 @@ flowchart TB
 ```
 
 **Figure 8 - Deployment.** The checked-in compose file runs two services: the API container and a local model-runtime container, with named volumes for run data and model files. SQLite persists campaign runs, artifacts, events, knowledge sources, chunks, and checkpoints; traces are written as JSONL. The same project can also run without containers via editable Python install and the deterministic local provider.
+
+## Technology Stack
+
+| Layer | Stack |
+|---|---|
+| Agent orchestration | LangGraph `StateGraph` from the LangChain ecosystem, Python async runtime, typed conditional edges |
+| Backend API | FastAPI, Pydantic, Typer CLI, SSE, WebSocket run submission |
+| Agent workforce | 11 agents total: one supervisor plus ten specialist sub-agents for research, strategy, copy, search, social, email, creative, QA, and analytics |
+| Retrieval and embeddings | Local hashing embeddings, BM25 lexical search, Reciprocal Rank Fusion, reranking, citation handoff |
+| Memory | Engine working, semantic, episodic, and procedural tiers plus dashboard `short`, `long`, and `checkpoint` user memory |
+| Persistence | SQLite runs, artifacts, events, users, workflow history, user memory, knowledge chunks, and checkpoints |
+| Web dashboard | Next.js App Router, React, TypeScript, JavaScript route handlers, role-based multi-user UI |
+| Quality and evals | Deterministic eval harness, routing accuracy checks, package completeness gates, guardrail tests |
+| Observability | JSONL traces, metrics snapshots, route history, persisted event stream |
 
 ## The Workforce
 
@@ -513,9 +538,9 @@ Dashboard user memory is persisted in SQLite in the `user_memory` table and is k
 |---|---|---|---|
 | `short` | Before a dashboard command runs | Latest command brief, workflow type, priority, channels, and operator memory notes. | Preserves the immediate command context so the UI and workflow can show what the user asked the agent to do. |
 | `long` | After a workflow produces a result | Durable campaign summary, quality summary, and routing summary for the selected user. | Gives the user continuity across sessions and keeps reusable outcomes visible without a paid user-profile service. |
-| `checkpoint` | After a workflow reaches a run boundary | Run id, status, route decision, and package id. | Makes each workflow traceable and gives reviewers a compact recovery/audit marker for completed or paused work. |
+| `checkpoint` | After a workflow reaches a LangGraph run boundary | Run id, status, route decision, package id, and approval/checkpoint context. | Makes each workflow traceable and gives reviewers a compact recovery/audit marker for completed, failed, or paused work. |
 
-The command flow writes a `short` record first, attaches recent user memory to the `CampaignBrief.metadata.user_memory_context`, runs the agent workflow, then writes `checkpoint` and `long` records with the result. The dashboard bootstrap endpoint returns memory grouped by user, and the React `MemoryPanel` displays the three scopes side by side.
+The command flow writes a `short` record first, attaches recent user memory to the `CampaignBrief.metadata.user_memory_context`, runs the LangGraph-backed agent workflow, then writes `checkpoint` and `long` records with the result. The dashboard bootstrap endpoint returns memory grouped by user, and the React `MemoryPanel` displays the three scopes side by side.
 
 Role access stays simple and local: viewers and reviewers can read memory; operators and admins can write memory and command agents. This is intentionally free infrastructure: SQLite is the memory store, FastAPI is the API boundary, and the dashboard uses local route handlers instead of a managed backend service.
 
@@ -643,8 +668,8 @@ The eval harness runs deterministic golden briefs through the full engine and sc
 |---|---:|---:|
 | Routing accuracy | `1.000` | `0.800` |
 | Package quality | `0.985` | `0.650` |
-| Test suite | `22 passed` | all tests pass |
-| Real Python lines | `24944` | `>=20000` |
+| Test suite | `23 passed` | all tests pass |
+| Real Python lines | `25604` | `>=20000` |
 
 ## Project Layout
 
@@ -676,7 +701,7 @@ The eval harness runs deterministic golden briefs through the full engine and sc
 |   |-- llm/                          # Provider-neutral gateway and providers
 |   |-- memory/                       # Working, semantic, episodic, procedural tiers
 |   |-- observability/                # Tracing, metrics, JSON logging
-|   |-- orchestration/                # Engine, router, graph adapter, policies, aggregator
+|   |-- orchestration/                # Engine, LangGraph builder, router, policies, aggregator
 |   |-- persistence/                  # SQLite repository and checkpoint facade
 |   |-- playbooks/                    # Generated procedural playbook libraries
 |   |-- retrieval/                    # Embeddings, BM25, RRF, rerank, RAG

@@ -24,6 +24,7 @@ from marketing_swarm.schemas.state import GraphState
 from marketing_swarm.tools.registry import build_default_registry
 
 from .aggregator import CampaignAggregator
+from .graph_builder import CampaignGraphState, build_graph
 from .policies import QualityPolicy
 from .router import MultiRouteRouter
 
@@ -44,16 +45,29 @@ class CampaignEngine:
         self.repository = SQLiteRepository(self.settings.db_path)
         self.memory = MemoryManager()
         self.rag = AgenticRAGPipeline()
+        self.graph = build_graph(self)
 
     async def run(self, brief: CampaignBrief | str) -> GraphState:
-        """Run a campaign to completion or HITL pause."""
+        """Run a campaign through the compiled LangGraph workflow."""
+        return await self.graph.ainvoke(brief)
+
+    async def graph_prepare(self, graph_state: CampaignGraphState) -> dict[str, GraphState]:
+        """Normalize the incoming brief, redact PII, and create initial run state."""
+        brief = graph_state["brief"]
         normalized = CampaignBrief.from_text(brief) if isinstance(brief, str) else brief
         redacted, count = redact_pii(normalized.brief)
         if count:
-            normalized = normalized.model_copy(update={"brief": redacted, "metadata": {**normalized.metadata, "pii_redactions": count}})
+            normalized = normalized.model_copy(
+                update={"brief": redacted, "metadata": {**normalized.metadata, "pii_redactions": count}}
+            )
         state = GraphState(brief=normalized)
         self.repository.save_state(state)
-        risk = injection_risk(normalized.brief)
+        return {"state": state}
+
+    async def graph_guardrails(self, graph_state: CampaignGraphState) -> dict[str, GraphState]:
+        """Apply prompt-injection guardrails before any planning work."""
+        state = graph_state["state"]
+        risk = injection_risk(state.brief.brief)
         if risk["blocked"]:
             state.failures.append(
                 FailureStamp(
@@ -66,8 +80,12 @@ class CampaignEngine:
             )
             state.mark(RunStatus.FAILED)
             self.repository.save_state(state)
-            return state
+        return {"state": state}
 
+    async def graph_plan(self, graph_state: CampaignGraphState) -> dict[str, GraphState]:
+        """Build the route plan and pause at the planning checkpoint if needed."""
+        state = graph_state["state"]
+        normalized = state.brief
         with self.traces.span("supervisor.plan", run_id=state.run_id):
             plan = self.router.build_plan(normalized)
             state.plan = plan
@@ -86,8 +104,15 @@ class CampaignEngine:
             state.approvals.append(request)
             state.mark(RunStatus.AWAITING_APPROVAL)
             self.repository.save_state(state)
-            return state
+        return {"state": state}
 
+    async def graph_execute(self, graph_state: CampaignGraphState) -> dict[str, GraphState]:
+        """Execute routed specialist work, including bounded QA revision loops."""
+        state = graph_state["state"]
+        if state.plan is None:
+            return {"state": state}
+        plan = state.plan
+        normalized = state.brief
         state.mark(RunStatus.RUNNING)
         documents = [result.document.model_dump() for result in self.rag.search(normalized.brief, limit=10)]
         context: dict[str, Any] = {"run_id": state.run_id, "documents": documents, "memory": self.memory.retrieve_context(normalized.brief)}
@@ -106,19 +131,26 @@ class CampaignEngine:
             completed.add(task.agent)
             if state.status == RunStatus.AWAITING_APPROVAL:
                 self.repository.save_state(state)
-                return state
+                return {"state": state}
 
         qa_result = state.results.get("brand_voice_qa")
         if qa_result and self.policy.qa_verdict(qa_result) == "revise":
             await self._bounded_revision_loop(state, context)
+        return {"state": state}
 
+    async def graph_aggregate(self, graph_state: CampaignGraphState) -> dict[str, GraphState]:
+        """Assemble and persist the final campaign package."""
+        state = graph_state["state"]
+        if state.plan is None:
+            return {"state": state}
+        plan = state.plan
         with self.traces.span("aggregator.package", run_id=state.run_id):
             state.package = self.aggregator.assemble(state.run_id, state.brief, plan.route, state.results)
             state.metrics = {**state.metrics, **self.metrics.snapshot(), "memory": self.memory.summarize()}
             state.mark(RunStatus.COMPLETED)
             self.repository.save_package(state.package)
             self.repository.save_state(state)
-        return state
+        return {"state": state}
 
     async def _run_parallel(self, state: GraphState, tasks, context: dict[str, Any]) -> None:
         """Run independent tasks concurrently."""
